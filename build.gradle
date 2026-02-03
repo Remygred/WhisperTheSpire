@@ -1,0 +1,48 @@
+plugins {
+    id 'java'
+}
+
+group = 'whispers.thespire'
+version = '0.1.0'
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_1_8
+    targetCompatibility = JavaVersion.VERSION_1_8
+}
+
+base {
+    archivesName = 'WhispersTheSpire'
+}
+
+dependencies {
+    compileOnly files(
+            'lib/desktop-1.0.jar',
+            'lib/BaseMod.jar',
+            'lib/ModTheSpire.jar'
+    )
+}
+
+tasks.register('verifyDeps') {
+    doLast {
+        def required = ['desktop-1.0.jar', 'BaseMod.jar', 'ModTheSpire.jar']
+        def missing = required.findAll { !file("lib/${it}").exists() }
+        if (!missing.isEmpty()) {
+            logger.error('Missing dependency jars in lib/:')
+            missing.each { logger.error(" - ${it}") }
+            logger.error('Fix: run scripts/copy_deps.ps1')
+            throw new GradleException("Missing dependency jars: ${missing.join(', ')}")
+        }
+    }
+}
+
+tasks.named('compileJava') {
+    dependsOn('verifyDeps')
+}
+
+tasks.register('deployToGameMods', Copy) {
+    dependsOn('build')
+    from(layout.buildDirectory.dir('libs'))
+    include("${base.archivesName.get()}-${version}.jar")
+    exclude('*-sources.jar', '*-javadoc.jar')
+    into('E:/SteamLibrary/steamapps/common/SlayTheSpire/mods')
+}
