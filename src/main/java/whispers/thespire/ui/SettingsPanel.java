@@ -55,6 +55,18 @@ public class SettingsPanel extends ModPanel {
 
         sb.flush();
         ScissorStack.popScissors();
+
+        // Draw text input overlay on top of settings content.
+        TextInputOverlay.render(sb);
+    }
+
+    @Override
+    public void update() {
+        if (TextInputOverlay.isActive()) {
+            TextInputOverlay.update();
+            return;
+        }
+        super.update();
     }
 
     private OrthographicCamera getCamera() {

@@ -9,6 +9,8 @@ public class LLMResult {
     public String contextType;
     public String summary;
     public List<LLMRecommendation> recommendations;
+    public Integer nextPickIndex;
+    public List<String> routePlan;
 
     public static LLMResult success(String contextType, String summary, List<LLMRecommendation> recs) {
         LLMResult result = new LLMResult();

@@ -15,4 +15,8 @@ public class Debouncer {
         }
         return false;
     }
+
+    public void reset() {
+        lastFire.clear();
+    }
 }

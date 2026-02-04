@@ -9,7 +9,13 @@ public class GameStateSnapshot {
     public List<RelicInfo> relics;
     public List<PotionInfo> potions;
     public MapInfo map;
+    public MapFullInfo map_full;
     public RewardInfo reward;
+    public NeowInfo neow;
+    public ShopInfo shop;
+    public BossRelicInfo boss_relic;
+    public RestInfo rest;
+    public EventInfo event;
     public CombatInfo combat;
 
     public boolean trimmed;
@@ -24,6 +30,8 @@ public class GameStateSnapshot {
         public Integer gold;
         public Integer hp;
         public Integer maxHp;
+        public String character;
+        public Long seed;
     }
 
     public static class CardInfo {
@@ -48,12 +56,30 @@ public class GameStateSnapshot {
     public static class MapInfo {
         public Integer curr_x;
         public Integer curr_y;
+        public String curr_type;
         public List<NodeInfo> next_nodes;
+    }
+
+    public static class MapFullInfo {
+        public List<MapRow> rows;
+    }
+
+    public static class MapRow {
+        public Integer y;
+        public List<MapNode> nodes;
+    }
+
+    public static class MapNode {
+        public Integer x;
+        public Integer y;
+        public String room_type;
+        public List<NodeInfo> next;
     }
 
     public static class NodeInfo {
         public Integer x;
         public Integer y;
+        public String room_type;
 
         public NodeInfo() {}
 
@@ -61,11 +87,59 @@ public class GameStateSnapshot {
             this.x = x;
             this.y = y;
         }
+
+        public NodeInfo(int x, int y, String roomType) {
+            this.x = x;
+            this.y = y;
+            this.room_type = roomType;
+        }
     }
 
     public static class RewardInfo {
         public List<CardInfo> choices;
         public Boolean canSkip;
+    }
+
+    public static class NeowInfo {
+        public List<NeowOption> options;
+    }
+
+    public static class NeowOption {
+        public String label;
+        public String reward_type;
+        public String drawback;
+    }
+
+    public static class ShopInfo {
+        public List<ShopItem> cards;
+        public List<ShopItem> relics;
+        public List<ShopItem> potions;
+        public Boolean purge_available;
+        public Integer purge_cost;
+        public List<CardInfo> purge_candidates;
+    }
+
+    public static class ShopItem {
+        public String item_type;
+        public String id;
+        public String name;
+        public Integer price;
+    }
+
+    public static class BossRelicInfo {
+        public List<RelicInfo> choices;
+        public Boolean canSkip;
+    }
+
+    public static class RestInfo {
+        public List<String> options;
+        public List<CardInfo> upgrade_options;
+    }
+
+    public static class EventInfo {
+        public String event_id;
+        public String event_name;
+        public List<String> options;
     }
 
     public static class CombatInfo {

@@ -10,4 +10,16 @@ public class LLMRequest {
     public String contextType;
     public String snapshotJson;
     public String snapshotHash;
+    public Integer ascension;
+    public String character;
+    public Long seed;
+    public Integer floor;
+    public Integer act;
+    public Integer hp;
+    public Integer maxHp;
+    public Integer gold;
+    public String mapCurrent;
+    public String mapNext;
+    public Boolean mapFullAvailable;
+    public String essentialFacts;
 }

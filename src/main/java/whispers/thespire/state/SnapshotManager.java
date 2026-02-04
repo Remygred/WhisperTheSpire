@@ -21,11 +21,23 @@ public class SnapshotManager {
     private static String lastSummary = "";
     private static String lastStatus = "";
     private static boolean forceRefresh = false;
+    private static String lastMapHash = "";
 
     private SnapshotManager() {}
 
     public static void requestRefresh() {
         forceRefresh = true;
+    }
+
+    public static void reset() {
+        lastUpdateMs = 0L;
+        lastKey = "";
+        lastSnapshot = null;
+        lastJson = null;
+        lastSummary = "";
+        lastStatus = "";
+        forceRefresh = false;
+        lastMapHash = "";
     }
 
     public static Result update(boolean wantJson) {
@@ -34,13 +46,32 @@ public class SnapshotManager {
 
     public static Result update(boolean wantJson, boolean includeCombat) {
         long now = System.currentTimeMillis();
-        String key = StateExtractor.buildLightweightKey();
+        String key;
+        try {
+            key = StateExtractor.buildLightweightKey();
+        } catch (Exception e) {
+            key = "";
+        }
         boolean shouldRefresh = forceRefresh || lastSnapshot == null
                 || (now - lastUpdateMs > MIN_INTERVAL_MS && !key.equals(lastKey));
 
         if (shouldRefresh) {
             forceRefresh = false;
-            GameStateSnapshot snapshot = StateExtractor.extract(includeCombat);
+            GameStateSnapshot snapshot;
+            try {
+                String mapHash = StateExtractor.computeMapHash();
+                boolean mapChanged = mapHash != null && !mapHash.isEmpty() && !mapHash.equals(lastMapHash);
+                boolean includeFullMap = StateExtractor.hasMap()
+                        && ("MAP".equals(StateExtractor.getScreenContext()) || "NEOW".equals(StateExtractor.getScreenContext()))
+                        && (mapChanged || lastMapHash.isEmpty() || StateExtractor.isMapStart());
+                snapshot = StateExtractor.extract(includeCombat, includeFullMap);
+                if (mapHash != null && !mapHash.isEmpty()) {
+                    lastMapHash = mapHash;
+                }
+            } catch (Exception e) {
+                lastStatus = "snapshot error";
+                return new Result(lastSnapshot, wantJson ? lastJson : null, lastSummary, lastStatus);
+            }
             String hash = computeHash(snapshot);
             snapshot.snapshot_hash = hash;
 
@@ -66,16 +97,18 @@ public class SnapshotManager {
     private static String buildSummary(GameStateSnapshot snapshot) {
         String screen = snapshot == null || snapshot.screen_context == null ? "OTHER" : snapshot.screen_context;
         Integer floor = snapshot != null && snapshot.run != null ? snapshot.run.floor : null;
+        Integer asc = snapshot != null && snapshot.run != null ? snapshot.run.ascension : null;
         Integer hp = snapshot != null && snapshot.run != null ? snapshot.run.hp : null;
         Integer maxHp = snapshot != null && snapshot.run != null ? snapshot.run.maxHp : null;
         Integer gold = snapshot != null && snapshot.run != null ? snapshot.run.gold : null;
 
         String floorText = floor == null ? "?" : floor.toString();
+        String ascText = asc == null ? "?" : ("A" + asc);
         String hpText = hp == null ? "?" : hp.toString();
         String maxHpText = maxHp == null ? "?" : maxHp.toString();
         String goldText = gold == null ? "?" : gold.toString();
 
-        return "screen=" + screen + ", floor=" + floorText + ", hp=" + hpText + "/" + maxHpText + ", gold=" + goldText;
+        return "screen=" + screen + ", floor=" + floorText + ", asc=" + ascText + ", hp=" + hpText + "/" + maxHpText + ", gold=" + goldText;
     }
 
     private static String buildStatus(GameStateSnapshot snapshot) {
@@ -151,6 +184,11 @@ public class SnapshotManager {
                 addDropped(snapshot.dropped_fields, "reward.dropped");
                 json = GSON.toJson(snapshot);
             }
+            if (json.length() > MAX_JSON && snapshot.event != null) {
+                snapshot.event = null;
+                addDropped(snapshot.dropped_fields, "event.dropped");
+                json = GSON.toJson(snapshot);
+            }
         }
 
         return json;
@@ -162,8 +200,24 @@ public class SnapshotManager {
         TrimStep combatMonstersTrim = SnapshotManager::trimCombatMonstersTo3;
         TrimStep combatPlayerPowersTrim = SnapshotManager::trimCombatPlayerPowersTo10;
         TrimStep combatMonsterPowersTrim = SnapshotManager::trimCombatMonsterPowersTo10;
+        TrimStep neowTrim = SnapshotManager::trimNeowOptionsTo4;
+        TrimStep neowDrop = SnapshotManager::dropNeow;
+        TrimStep bossRelicTrim = SnapshotManager::trimBossRelicTo3;
+        TrimStep bossRelicDrop = SnapshotManager::dropBossRelic;
+        TrimStep restOptionsTrim = SnapshotManager::trimRestOptionsTo6;
+        TrimStep restUpgradeTrim = SnapshotManager::trimRestUpgradesTo10;
+        TrimStep restDrop = SnapshotManager::dropRest;
+        TrimStep eventOptionsTrim = SnapshotManager::trimEventOptionsTo6;
+        TrimStep eventDrop = SnapshotManager::dropEvent;
+        TrimStep mapFullTrim = SnapshotManager::trimMapFullEdges;
+        TrimStep mapFullDrop = SnapshotManager::dropMapFull;
         TrimStep mapTrim = SnapshotManager::trimMapTo3;
         TrimStep mapDrop = SnapshotManager::dropMap;
+        TrimStep shopCardsTrim = SnapshotManager::trimShopCardsTo6;
+        TrimStep shopRelicsTrim = SnapshotManager::trimShopRelicsTo6;
+        TrimStep shopPotionsTrim = SnapshotManager::trimShopPotionsTo6;
+        TrimStep shopPurgeTrim = SnapshotManager::trimShopPurgeTo15;
+        TrimStep shopDrop = SnapshotManager::dropShop;
         TrimStep deckTrim = SnapshotManager::trimDeckTo30;
         TrimStep relicTrim = SnapshotManager::trimRelicsTo20;
         TrimStep relicIdOnly = SnapshotManager::relicsIdOnly;
@@ -176,13 +230,91 @@ public class SnapshotManager {
             steps.add(combatMonstersTrim);
             steps.add(combatPlayerPowersTrim);
             steps.add(combatMonsterPowersTrim);
+            steps.add(neowDrop);
+            steps.add(bossRelicDrop);
+            steps.add(restDrop);
             steps.add(mapDrop);
+            steps.add(mapFullDrop);
             steps.add(rewardTrim);
             steps.add(rewardIdOnly);
+            steps.add(shopDrop);
             steps.add(deckTrim);
             steps.add(relicTrim);
             steps.add(relicIdOnly);
             steps.add(potionIdOnly);
+            return steps;
+        }
+
+        if ("NEOW".equals(context)) {
+            steps.add(mapDrop);
+            steps.add(mapFullTrim);
+            steps.add(mapFullDrop);
+            steps.add(rewardTrim);
+            steps.add(rewardIdOnly);
+            steps.add(shopDrop);
+            steps.add(bossRelicDrop);
+            steps.add(restDrop);
+            steps.add(deckTrim);
+            steps.add(relicTrim);
+            steps.add(relicIdOnly);
+            steps.add(potionIdOnly);
+            steps.add(neowTrim);
+            steps.add(neowDrop);
+            return steps;
+        }
+
+        if ("BOSS_RELIC".equals(context)) {
+            steps.add(mapDrop);
+            steps.add(mapFullDrop);
+            steps.add(rewardTrim);
+            steps.add(rewardIdOnly);
+            steps.add(shopDrop);
+            steps.add(neowDrop);
+            steps.add(restDrop);
+            steps.add(deckTrim);
+            steps.add(relicTrim);
+            steps.add(relicIdOnly);
+            steps.add(potionIdOnly);
+            steps.add(bossRelicTrim);
+            steps.add(bossRelicDrop);
+            return steps;
+        }
+
+        if ("REST".equals(context)) {
+            steps.add(mapDrop);
+            steps.add(mapFullDrop);
+            steps.add(rewardTrim);
+            steps.add(rewardIdOnly);
+            steps.add(shopDrop);
+            steps.add(neowDrop);
+            steps.add(bossRelicDrop);
+            steps.add(deckTrim);
+            steps.add(relicTrim);
+            steps.add(relicIdOnly);
+            steps.add(potionIdOnly);
+            steps.add(eventDrop);
+            steps.add(restOptionsTrim);
+            steps.add(restUpgradeTrim);
+            steps.add(restDrop);
+            return steps;
+        }
+
+        if ("EVENT".equals(context)) {
+            steps.add(mapTrim);
+            steps.add(mapDrop);
+            steps.add(mapFullDrop);
+            steps.add(deckTrim);
+            steps.add(relicTrim);
+            steps.add(relicIdOnly);
+            steps.add(potionIdOnly);
+            steps.add(rewardTrim);
+            steps.add(rewardIdOnly);
+            steps.add(shopDrop);
+            steps.add(neowDrop);
+            steps.add(bossRelicDrop);
+            steps.add(restDrop);
+            steps.add(eventOptionsTrim);
+            steps.add(eventDrop);
             return steps;
         }
 
@@ -193,26 +325,63 @@ public class SnapshotManager {
             steps.add(relicTrim);
             steps.add(relicIdOnly);
             steps.add(potionIdOnly);
+            steps.add(shopDrop);
+            steps.add(neowDrop);
+            steps.add(bossRelicDrop);
+            steps.add(restDrop);
+            steps.add(eventDrop);
+            steps.add(mapFullTrim);
+            steps.add(mapFullDrop);
             steps.add(mapTrim);
             steps.add(mapDrop);
         } else if ("CARD_REWARD".equals(context)) {
             steps.add(mapTrim);
             steps.add(mapDrop);
+            steps.add(mapFullDrop);
             steps.add(deckTrim);
             steps.add(relicTrim);
             steps.add(relicIdOnly);
             steps.add(potionIdOnly);
+            steps.add(shopDrop);
+            steps.add(neowDrop);
+            steps.add(bossRelicDrop);
+            steps.add(restDrop);
+            steps.add(eventDrop);
             steps.add(rewardTrim);
             steps.add(rewardIdOnly);
+        } else if ("SHOP".equals(context)) {
+            steps.add(mapDrop);
+            steps.add(mapFullDrop);
+            steps.add(rewardTrim);
+            steps.add(rewardIdOnly);
+            steps.add(neowDrop);
+            steps.add(bossRelicDrop);
+            steps.add(restDrop);
+            steps.add(eventDrop);
+            steps.add(deckTrim);
+            steps.add(relicTrim);
+            steps.add(relicIdOnly);
+            steps.add(potionIdOnly);
+            steps.add(shopCardsTrim);
+            steps.add(shopRelicsTrim);
+            steps.add(shopPotionsTrim);
+            steps.add(shopPurgeTrim);
+            steps.add(shopDrop);
         } else {
             steps.add(mapTrim);
             steps.add(mapDrop);
+            steps.add(mapFullDrop);
             steps.add(deckTrim);
             steps.add(relicTrim);
             steps.add(relicIdOnly);
             steps.add(potionIdOnly);
             steps.add(rewardTrim);
             steps.add(rewardIdOnly);
+            steps.add(shopDrop);
+            steps.add(neowDrop);
+            steps.add(bossRelicDrop);
+            steps.add(restDrop);
+            steps.add(eventDrop);
         }
 
         return steps;
@@ -234,6 +403,193 @@ public class SnapshotManager {
         if (snapshot.map != null) {
             snapshot.map = null;
             dropped.add("map");
+            return true;
+        }
+        return false;
+    }
+
+    private static boolean trimMapFullEdges(GameStateSnapshot snapshot, List<String> dropped) {
+        if (snapshot.map_full == null || snapshot.map_full.rows == null) {
+            return false;
+        }
+        boolean changed = false;
+        for (GameStateSnapshot.MapRow row : snapshot.map_full.rows) {
+            if (row == null || row.nodes == null) {
+                continue;
+            }
+            for (GameStateSnapshot.MapNode node : row.nodes) {
+                if (node == null || node.next == null) {
+                    continue;
+                }
+                if (node.next.size() > 2) {
+                    node.next = new ArrayList<>(node.next.subList(0, 2));
+                    changed = true;
+                }
+            }
+        }
+        if (changed) {
+            dropped.add("map_full.edges.truncated");
+        }
+        return changed;
+    }
+
+    private static boolean dropMapFull(GameStateSnapshot snapshot, List<String> dropped) {
+        if (snapshot.map_full != null) {
+            snapshot.map_full = null;
+            dropped.add("map_full");
+            return true;
+        }
+        return false;
+    }
+
+    private static boolean trimNeowOptionsTo4(GameStateSnapshot snapshot, List<String> dropped) {
+        if (snapshot.neow == null || snapshot.neow.options == null) {
+            return false;
+        }
+        if (snapshot.neow.options.size() > 4) {
+            snapshot.neow.options = new ArrayList<>(snapshot.neow.options.subList(0, 4));
+            dropped.add("neow.options.truncated_to_4");
+            return true;
+        }
+        return false;
+    }
+
+    private static boolean dropNeow(GameStateSnapshot snapshot, List<String> dropped) {
+        if (snapshot.neow != null) {
+            snapshot.neow = null;
+            dropped.add("neow");
+            return true;
+        }
+        return false;
+    }
+
+    private static boolean trimBossRelicTo3(GameStateSnapshot snapshot, List<String> dropped) {
+        if (snapshot.boss_relic == null || snapshot.boss_relic.choices == null) {
+            return false;
+        }
+        if (snapshot.boss_relic.choices.size() > 3) {
+            snapshot.boss_relic.choices = new ArrayList<>(snapshot.boss_relic.choices.subList(0, 3));
+            dropped.add("boss_relic.choices.truncated_to_3");
+            return true;
+        }
+        return false;
+    }
+
+    private static boolean dropBossRelic(GameStateSnapshot snapshot, List<String> dropped) {
+        if (snapshot.boss_relic != null) {
+            snapshot.boss_relic = null;
+            dropped.add("boss_relic");
+            return true;
+        }
+        return false;
+    }
+
+    private static boolean trimRestOptionsTo6(GameStateSnapshot snapshot, List<String> dropped) {
+        if (snapshot.rest == null || snapshot.rest.options == null) {
+            return false;
+        }
+        if (snapshot.rest.options.size() > 6) {
+            snapshot.rest.options = new ArrayList<>(snapshot.rest.options.subList(0, 6));
+            dropped.add("rest.options.truncated_to_6");
+            return true;
+        }
+        return false;
+    }
+
+    private static boolean trimRestUpgradesTo10(GameStateSnapshot snapshot, List<String> dropped) {
+        if (snapshot.rest == null || snapshot.rest.upgrade_options == null) {
+            return false;
+        }
+        if (snapshot.rest.upgrade_options.size() > 10) {
+            snapshot.rest.upgrade_options = new ArrayList<>(snapshot.rest.upgrade_options.subList(0, 10));
+            dropped.add("rest.upgrade_options.truncated_to_10");
+            return true;
+        }
+        return false;
+    }
+
+    private static boolean dropRest(GameStateSnapshot snapshot, List<String> dropped) {
+        if (snapshot.rest != null) {
+            snapshot.rest = null;
+            dropped.add("rest");
+            return true;
+        }
+        return false;
+    }
+
+    private static boolean trimEventOptionsTo6(GameStateSnapshot snapshot, List<String> dropped) {
+        if (snapshot.event == null || snapshot.event.options == null) {
+            return false;
+        }
+        if (snapshot.event.options.size() > 6) {
+            snapshot.event.options = new ArrayList<>(snapshot.event.options.subList(0, 6));
+            dropped.add("event.options.truncated_to_6");
+            return true;
+        }
+        return false;
+    }
+
+    private static boolean dropEvent(GameStateSnapshot snapshot, List<String> dropped) {
+        if (snapshot.event != null) {
+            snapshot.event = null;
+            dropped.add("event");
+            return true;
+        }
+        return false;
+    }
+
+    private static boolean trimShopCardsTo6(GameStateSnapshot snapshot, List<String> dropped) {
+        if (snapshot.shop == null || snapshot.shop.cards == null) {
+            return false;
+        }
+        if (snapshot.shop.cards.size() > 6) {
+            snapshot.shop.cards = new ArrayList<>(snapshot.shop.cards.subList(0, 6));
+            dropped.add("shop.cards.truncated_to_6");
+            return true;
+        }
+        return false;
+    }
+
+    private static boolean trimShopRelicsTo6(GameStateSnapshot snapshot, List<String> dropped) {
+        if (snapshot.shop == null || snapshot.shop.relics == null) {
+            return false;
+        }
+        if (snapshot.shop.relics.size() > 6) {
+            snapshot.shop.relics = new ArrayList<>(snapshot.shop.relics.subList(0, 6));
+            dropped.add("shop.relics.truncated_to_6");
+            return true;
+        }
+        return false;
+    }
+
+    private static boolean trimShopPotionsTo6(GameStateSnapshot snapshot, List<String> dropped) {
+        if (snapshot.shop == null || snapshot.shop.potions == null) {
+            return false;
+        }
+        if (snapshot.shop.potions.size() > 6) {
+            snapshot.shop.potions = new ArrayList<>(snapshot.shop.potions.subList(0, 6));
+            dropped.add("shop.potions.truncated_to_6");
+            return true;
+        }
+        return false;
+    }
+
+    private static boolean trimShopPurgeTo15(GameStateSnapshot snapshot, List<String> dropped) {
+        if (snapshot.shop == null || snapshot.shop.purge_candidates == null) {
+            return false;
+        }
+        if (snapshot.shop.purge_candidates.size() > 15) {
+            snapshot.shop.purge_candidates = new ArrayList<>(snapshot.shop.purge_candidates.subList(0, 15));
+            dropped.add("shop.purge_candidates.truncated_to_15");
+            return true;
+        }
+        return false;
+    }
+
+    private static boolean dropShop(GameStateSnapshot snapshot, List<String> dropped) {
+        if (snapshot.shop != null) {
+            snapshot.shop = null;
+            dropped.add("shop");
             return true;
         }
         return false;
@@ -421,16 +777,38 @@ public class SnapshotManager {
             sb.append(value(snapshot.run.ascension)).append('|');
             sb.append(value(snapshot.run.gold)).append('|');
             sb.append(value(snapshot.run.hp)).append('/').append(value(snapshot.run.maxHp)).append('|');
+            sb.append(safe(snapshot.run.character)).append('|');
+            sb.append(value(snapshot.run.seed)).append('|');
         }
         appendList(sb, snapshot.deck_summary, card -> card.card_id);
         appendList(sb, snapshot.relics, relic -> relic.relic_id);
         appendList(sb, snapshot.potions, potion -> potion.potion_id);
+        if (snapshot.neow != null) {
+            appendList(sb, snapshot.neow.options, opt -> safe(opt.label));
+        }
+        if (snapshot.boss_relic != null) {
+            appendList(sb, snapshot.boss_relic.choices, relic -> relic.relic_id);
+        }
+        if (snapshot.rest != null) {
+            appendList(sb, snapshot.rest.options, opt -> opt);
+            appendList(sb, snapshot.rest.upgrade_options, card -> card.card_id);
+        }
+        if (snapshot.event != null) {
+            sb.append("event=").append(safe(snapshot.event.event_id)).append('|');
+            appendList(sb, snapshot.event.options, opt -> opt);
+        }
         if (snapshot.map != null) {
             sb.append("map:").append(value(snapshot.map.curr_x)).append(',').append(value(snapshot.map.curr_y)).append('|');
             appendList(sb, snapshot.map.next_nodes, node -> node.x + "," + node.y);
         }
         if (snapshot.reward != null) {
             appendList(sb, snapshot.reward.choices, card -> card.card_id);
+        }
+        if (snapshot.shop != null) {
+            appendList(sb, snapshot.shop.cards, item -> item.id);
+            appendList(sb, snapshot.shop.relics, item -> item.id);
+            appendList(sb, snapshot.shop.potions, item -> item.id);
+            appendList(sb, snapshot.shop.purge_candidates, card -> card.card_id);
         }
         if (snapshot.combat != null) {
             sb.append("turn=").append(value(snapshot.combat.turn)).append('|');
@@ -454,6 +832,10 @@ public class SnapshotManager {
     }
 
     private static String value(Integer value) {
+        return value == null ? "" : value.toString();
+    }
+
+    private static String value(Long value) {
         return value == null ? "" : value.toString();
     }
 

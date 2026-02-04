@@ -14,6 +14,9 @@ public class ModConfig {
     public static boolean combatAdviceEnabled = false;
     public static boolean debugShowSnapshot = false;
     public static boolean debugShowRawResponse = false;
+    public static boolean showReasons = true;
+    public static boolean multiRecommendations = false;
+    public static boolean useKnowledgeBase = true;
     public static String provider = "openai_compat";
     public static String baseUrl = "https://api.openai.com/v1";
     public static String model = "gpt-4o-mini";
@@ -22,6 +25,8 @@ public class ModConfig {
     public static int timeoutMs = 12000;
     public static String apiKey = "";
     public static int hotkeyRefresh = Input.Keys.F8;
+    public static int hotkeyToggleOverlay = Input.Keys.F9;
+    public static String language = "zh";
 
     public static float panelX = -1f;
     public static float panelY = -1f;
@@ -38,6 +43,9 @@ public class ModConfig {
             defaults.setProperty("combatAdviceEnabled", Boolean.toString(combatAdviceEnabled));
             defaults.setProperty("debugShowSnapshot", Boolean.toString(debugShowSnapshot));
             defaults.setProperty("debugShowRawResponse", Boolean.toString(debugShowRawResponse));
+            defaults.setProperty("showReasons", Boolean.toString(showReasons));
+            defaults.setProperty("multiRecommendations", Boolean.toString(multiRecommendations));
+            defaults.setProperty("useKnowledgeBase", Boolean.toString(useKnowledgeBase));
             defaults.setProperty("provider", provider);
             defaults.setProperty("baseUrl", baseUrl);
             defaults.setProperty("model", model);
@@ -46,6 +54,8 @@ public class ModConfig {
             defaults.setProperty("timeoutMs", Integer.toString(timeoutMs));
             defaults.setProperty("apiKey", apiKey);
             defaults.setProperty("hotkeyRefresh", Integer.toString(hotkeyRefresh));
+            defaults.setProperty("hotkeyToggleOverlay", Integer.toString(hotkeyToggleOverlay));
+            defaults.setProperty("language", language);
             defaults.setProperty("panelX", Float.toString(panelX));
             defaults.setProperty("panelY", Float.toString(panelY));
             defaults.setProperty("panelW", Float.toString(panelW));
@@ -59,6 +69,9 @@ public class ModConfig {
             combatAdviceEnabled = config.getBool("combatAdviceEnabled");
             debugShowSnapshot = config.getBool("debugShowSnapshot");
             debugShowRawResponse = config.getBool("debugShowRawResponse");
+            showReasons = config.getBool("showReasons");
+            multiRecommendations = config.getBool("multiRecommendations");
+            useKnowledgeBase = config.getBool("useKnowledgeBase");
             provider = config.getString("provider");
             baseUrl = config.getString("baseUrl");
             model = config.getString("model");
@@ -67,6 +80,8 @@ public class ModConfig {
             timeoutMs = config.getInt("timeoutMs");
             apiKey = config.getString("apiKey");
             hotkeyRefresh = config.getInt("hotkeyRefresh");
+            hotkeyToggleOverlay = config.getInt("hotkeyToggleOverlay");
+            language = config.getString("language");
             panelX = config.getFloat("panelX");
             panelY = config.getFloat("panelY");
             panelW = config.getFloat("panelW");
@@ -92,6 +107,9 @@ public class ModConfig {
             config.setBool("combatAdviceEnabled", combatAdviceEnabled);
             config.setBool("debugShowSnapshot", debugShowSnapshot);
             config.setBool("debugShowRawResponse", debugShowRawResponse);
+            config.setBool("showReasons", showReasons);
+            config.setBool("multiRecommendations", multiRecommendations);
+            config.setBool("useKnowledgeBase", useKnowledgeBase);
             config.setString("provider", safe(provider));
             config.setString("baseUrl", safe(baseUrl));
             config.setString("model", safe(model));
@@ -100,6 +118,8 @@ public class ModConfig {
             config.setInt("timeoutMs", timeoutMs);
             config.setString("apiKey", safe(apiKey));
             config.setInt("hotkeyRefresh", hotkeyRefresh);
+            config.setInt("hotkeyToggleOverlay", hotkeyToggleOverlay);
+            config.setString("language", safe(language));
             config.setFloat("panelX", panelX);
             config.setFloat("panelY", panelY);
             config.setFloat("panelW", panelW);

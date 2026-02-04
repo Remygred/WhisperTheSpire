@@ -44,12 +44,22 @@ public class ResponseParser {
         }
 
         try {
-            LLMResponse parsed = GSON.fromJson(jsonObject, LLMResponse.class);
+            JsonObject root = new JsonParser().parse(jsonObject).getAsJsonObject();
+            LLMResponse parsed = GSON.fromJson(root, LLMResponse.class);
             if (parsed == null || parsed.recommendations == null) {
                 return LLMResult.failure("parse_failed:missing_fields", JsonUtil.truncate(content, 4000));
             }
             List<LLMRecommendation> recs = new ArrayList<>();
             boolean combat = "COMBAT".equalsIgnoreCase(parsed.context_type);
+            boolean shop = "SHOP".equalsIgnoreCase(parsed.context_type);
+            int limit;
+            if (shop) {
+                limit = 3;
+            } else if (combat) {
+                limit = whispers.thespire.config.ModConfig.multiRecommendations ? 2 : 1;
+            } else {
+                limit = whispers.thespire.config.ModConfig.multiRecommendations ? 3 : 1;
+            }
             for (LLMRecommendation rec : parsed.recommendations) {
                 if (rec == null) {
                     continue;
@@ -64,14 +74,25 @@ public class ResponseParser {
                 if (rec.reason == null) rec.reason = "";
                 if (rec.confidence == null) rec.confidence = 0.5f;
                 recs.add(rec);
-                if (combat && recs.size() >= 2) {
-                    break;
-                }
-                if (!combat && recs.size() >= 3) {
+                if (recs.size() >= limit) {
                     break;
                 }
             }
-            return LLMResult.success(parsed.context_type, parsed.summary == null ? "" : parsed.summary, recs);
+            LLMResult result = LLMResult.success(parsed.context_type, parsed.summary == null ? "" : parsed.summary, recs);
+            if (parsed.next_pick_index != null) {
+                result.nextPickIndex = parsed.next_pick_index;
+            }
+            if (parsed.route_plan != null && !parsed.route_plan.isEmpty()) {
+                result.routePlan = parsed.route_plan;
+            } else if (root != null && root.has("route_plan") && root.get("route_plan").isJsonPrimitive()) {
+                String route = root.get("route_plan").getAsString();
+                if (route != null && !route.isEmpty()) {
+                    List<String> list = new ArrayList<>();
+                    list.add(route);
+                    result.routePlan = list;
+                }
+            }
+            return result;
         } catch (Exception e) {
             return LLMResult.failure("parse_failed:" + e.getClass().getSimpleName(), JsonUtil.truncate(content, 4000));
         }
@@ -81,5 +102,7 @@ public class ResponseParser {
         String context_type;
         String summary;
         List<LLMRecommendation> recommendations;
+        Integer next_pick_index;
+        List<String> route_plan;
     }
 }

@@ -9,6 +9,10 @@ public class AutoRequestController {
     private static final long REWARD_DEBOUNCE_MS = 2000L;
     private static final long POTION_DEBOUNCE_MS = 8000L;
     private static final long COMBAT_DEBOUNCE_MS = 1000L;
+    private static final long NEOW_DEBOUNCE_MS = 5000L;
+    private static final long SHOP_DEBOUNCE_MS = 3000L;
+    private static final long BOSS_RELIC_DEBOUNCE_MS = 3000L;
+    private static final long REST_DEBOUNCE_MS = 3000L;
 
     private final Debouncer debouncer = new Debouncer();
     private final Cache cache = new Cache();
@@ -35,6 +39,11 @@ public class AutoRequestController {
         cache.update(context, snapshotHash);
     }
 
+    public void reset() {
+        debouncer.reset();
+        cache.reset();
+    }
+
     private long debounceFor(String context) {
         if ("MAP_PATH".equals(context)) {
             return MAP_DEBOUNCE_MS;
@@ -47,6 +56,18 @@ public class AutoRequestController {
         }
         if ("COMBAT_TURN".equals(context)) {
             return COMBAT_DEBOUNCE_MS;
+        }
+        if ("NEOW".equals(context)) {
+            return NEOW_DEBOUNCE_MS;
+        }
+        if ("SHOP".equals(context)) {
+            return SHOP_DEBOUNCE_MS;
+        }
+        if ("BOSS_RELIC".equals(context)) {
+            return BOSS_RELIC_DEBOUNCE_MS;
+        }
+        if ("REST".equals(context)) {
+            return REST_DEBOUNCE_MS;
         }
         return 3000L;
     }

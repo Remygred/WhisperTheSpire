@@ -20,4 +20,8 @@ public class Cache {
         }
         lastHash.put(key, hash);
     }
+
+    public void reset() {
+        lastHash.clear();
+    }
 }
