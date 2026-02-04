@@ -23,9 +23,7 @@
 3. 放进游戏 `mods` 文件夹（见上面的安装步骤）
 
 Release 页面地址：
-```
 https://github.com/Remygred/WhisperTheSpire/releases
-```
 
 ## 第一次配置（重要）
 1. 主菜单点 `Mods`
