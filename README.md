@@ -29,10 +29,38 @@ https://github.com/Remygred/WhisperTheSpire/releases
 1. 主菜单点 `Mods`
 2. 选中 `WhispersTheSpire`，点击 `Config`
 3. 填写或确认：
+   - `provider`：`openai_compat` 或 `gemini`
    - `baseUrl`：你的接口地址（例如 `https://api.lonlie.cn/v1`）
    - `model`：模型名称（例如 `gpt-4o-mini`）
    - `apiKey`：你的密钥（不会写入日志）
 4. 语言可在设置里一键切换（中文/英文）
+
+## API 配置详细说明（以 DeepSeek 为例）
+如果你使用的是 **OpenAI-compatible** 接口（大部分国内中转/平台都支持），
+请按下面方式填写即可：
+
+**示例：DeepSeek**
+1. `provider`：`openai_compat`
+2. `baseUrl`：`https://api.deepseek.com/v1`
+3. `model`：`deepseek-chat`（或 `deepseek-reasoner`）
+4. `apiKey`：你在 DeepSeek 控制台生成的 Key
+5. 保存后回到游戏内，按 `F8` 触发一次测试
+
+说明：
+- 只要接口是 **OpenAI-compatible**，就统一用 `provider=openai_compat`。
+- `baseUrl` 一般以 `/v1` 结尾（不同平台可能略有差异，以官方文档为准）。
+
+## 其他平台文档链接（参考）
+下面是常见平台的官方文档，遇到不确定的参数可以直接对照：
+
+- DeepSeek（OpenAI-compatible）：  
+  https://api-docs.deepseek.com/
+- Gemini（原生接口，需 `provider=gemini`）：  
+  https://ai.google.dev/api
+- 通义千问 Qwen（OpenAI-compatible，DashScope）：  
+  https://www.alibabacloud.com/help/doc-detail/3016807.html
+- 火山方舟 / 豆包（OpenAI-compatible 说明）：  
+  https://www.volcengine.com/docs/82379/1541595
 
 ## 游戏内怎么用
 1. 小窗默认在右侧，可拖动、可缩放

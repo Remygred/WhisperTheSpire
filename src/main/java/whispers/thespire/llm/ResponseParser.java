@@ -36,6 +36,42 @@ public class ResponseParser {
         }
     }
 
+    public static LLMResult parseGeminiGenerateContent(String responseBody) {
+        try {
+            JsonObject root = new JsonParser().parse(responseBody).getAsJsonObject();
+            JsonArray candidates = root.getAsJsonArray("candidates");
+            if (candidates == null || candidates.size() == 0) {
+                return LLMResult.failure("missing_candidates", JsonUtil.truncate(responseBody, 4000));
+            }
+            JsonObject candidate0 = candidates.get(0).getAsJsonObject();
+            JsonObject content = candidate0.getAsJsonObject("content");
+            if (content == null) {
+                return LLMResult.failure("missing_content", JsonUtil.truncate(responseBody, 4000));
+            }
+            JsonArray parts = content.getAsJsonArray("parts");
+            if (parts == null || parts.size() == 0) {
+                return LLMResult.failure("missing_content_parts", JsonUtil.truncate(responseBody, 4000));
+            }
+            String text = null;
+            for (JsonElement partEl : parts) {
+                if (partEl == null || !partEl.isJsonObject()) {
+                    continue;
+                }
+                JsonObject part = partEl.getAsJsonObject();
+                if (part.has("text")) {
+                    text = part.get("text").getAsString();
+                    break;
+                }
+            }
+            if (text == null) {
+                return LLMResult.failure("missing_content_text", JsonUtil.truncate(responseBody, 4000));
+            }
+            return parseContent(text);
+        } catch (Exception e) {
+            return LLMResult.failure("parse_failed:" + e.getClass().getSimpleName(), JsonUtil.truncate(responseBody, 4000));
+        }
+    }
+
     private static LLMResult parseContent(String content) {
         String cleaned = JsonUtil.stripCodeFences(content);
         String jsonObject = JsonUtil.extractFirstJsonObject(cleaned);

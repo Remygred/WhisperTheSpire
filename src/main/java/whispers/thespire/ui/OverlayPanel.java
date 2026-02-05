@@ -20,6 +20,7 @@ import whispers.thespire.config.ModConfig;
 import whispers.thespire.i18n.I18n;
 import whispers.thespire.llm.LLMClient;
 import whispers.thespire.llm.OpenAICompatClient;
+import whispers.thespire.llm.GeminiClient;
 import whispers.thespire.llm.model.LLMRecommendation;
 import whispers.thespire.llm.model.LLMRequest;
 import whispers.thespire.llm.model.LLMResult;
@@ -86,7 +87,7 @@ public class OverlayPanel {
     private static final float SCROLLBAR_SCALE = 0.65f;
     private static OrthographicCamera fallbackCamera;
 
-    private static final LLMClient LLM_CLIENT = new LLMClient(new OpenAICompatClient());
+    private static final LLMClient LLM_CLIENT = new LLMClient(new OpenAICompatClient(), new GeminiClient());
     private static final AutoRequestController AUTO_CONTROLLER = new AutoRequestController();
     private static Future<LLMResult> llmFuture;
     private static String llmStateLine = "Idle";
