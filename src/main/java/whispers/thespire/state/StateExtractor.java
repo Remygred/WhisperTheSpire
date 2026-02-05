@@ -157,7 +157,77 @@ public class StateExtractor {
         int gold = AbstractDungeon.player == null ? -1 : AbstractDungeon.player.gold;
         MapRoomNode node = AbstractDungeon.getCurrMapNode();
         String nodeKey = node == null ? "" : (node.x + "," + node.y);
-        return context + "|" + floor + "|" + roomName + "|" + nodeKey + "|" + hp + "|" + gold;
+        String base = context + "|" + floor + "|" + roomName + "|" + nodeKey + "|" + hp + "|" + gold;
+        if ("COMBAT".equals(context)) {
+            int turn = com.megacrit.cardcrawl.actions.GameActionManager.turn;
+            int handSize = (AbstractDungeon.player != null && AbstractDungeon.player.hand != null)
+                    ? AbstractDungeon.player.hand.size() : -1;
+            int energy = (AbstractDungeon.player != null && AbstractDungeon.player.energy != null)
+                    ? AbstractDungeon.player.energy.energy : -1;
+            String intentSig = buildIntentSignature();
+            return base + "|turn=" + turn + "|hand=" + handSize + "|energy=" + energy + "|intent=" + intentSig;
+        }
+        if ("EVENT".equals(context)) {
+            String eventSig = buildEventSignature();
+            return base + "|event=" + eventSig;
+        }
+        return base;
+    }
+
+    private static String buildIntentSignature() {
+        try {
+            if (AbstractDungeon.getMonsters() == null || AbstractDungeon.getMonsters().monsters == null) {
+                return "";
+            }
+            StringBuilder sb = new StringBuilder();
+            for (com.megacrit.cardcrawl.monsters.AbstractMonster monster : AbstractDungeon.getMonsters().monsters) {
+                if (monster == null) {
+                    continue;
+                }
+                sb.append(monster.id == null ? "" : monster.id);
+                sb.append(":");
+                sb.append(monster.intent == null ? "none" : monster.intent.name());
+                int intentDmg = monster.getIntentDmg();
+                if (intentDmg >= 0) {
+                    sb.append("#").append(intentDmg);
+                }
+                Integer multiAmt = readMonsterInt(monster, "intentMultiAmt");
+                if (multiAmt != null && multiAmt > 1) {
+                    sb.append("x").append(multiAmt);
+                }
+                sb.append("|");
+            }
+            return sb.toString();
+        } catch (Exception ignored) {
+            return "";
+        }
+    }
+
+    private static String buildEventSignature() {
+        try {
+            AbstractRoom room = AbstractDungeon.getCurrRoom();
+            if (!(room instanceof EventRoom)) {
+                return "";
+            }
+            AbstractEvent event = readEvent(room);
+            if (event == null) {
+                return "event_null";
+            }
+            StringBuilder sb = new StringBuilder();
+            sb.append(event.getClass().getSimpleName()).append("|");
+            List<String> options = readEventOptions(event);
+            if (options != null) {
+                for (String opt : options) {
+                    if (opt == null) {
+                        continue;
+                    }
+                    sb.append(opt).append("#");
+                }
+            }
+            return sb.toString();
+        } catch (Exception ignored) {
+            return "";
+        }
     }
 
     public static String getScreenContext() {
@@ -501,10 +571,13 @@ public class StateExtractor {
             return null;
         }
         AbstractEvent event = readEvent(room);
-        if (event == null) {
-            return null;
-        }
         GameStateSnapshot.EventInfo info = new GameStateSnapshot.EventInfo();
+        if (event == null) {
+            info.event_id = "UnknownEvent";
+            info.event_name = "Unknown Event";
+            info.options = new ArrayList<>();
+            return info;
+        }
         info.event_id = event.getClass().getSimpleName();
         try {
             Field nameField = AbstractEvent.class.getDeclaredField("name");
@@ -514,13 +587,31 @@ public class StateExtractor {
         } catch (Exception ignored) {
             info.event_name = null;
         }
+        if (info.event_name == null || info.event_name.trim().isEmpty()) {
+            info.event_name = info.event_id;
+        }
         info.options = readEventOptions(event);
         return info;
     }
 
     private static AbstractEvent readEvent(AbstractRoom room) {
+        if (room == null) {
+            return null;
+        }
         try {
-            Field eventField = room.getClass().getDeclaredField("event");
+            Field eventField = findField(room.getClass(), "event");
+            if (eventField != null) {
+                eventField.setAccessible(true);
+                Object value = eventField.get(room);
+                if (value instanceof AbstractEvent) {
+                    return (AbstractEvent) value;
+                }
+            }
+        } catch (Exception ignored) {
+            // ignore
+        }
+        try {
+            Field eventField = EventRoom.class.getDeclaredField("event");
             eventField.setAccessible(true);
             Object value = eventField.get(room);
             if (value instanceof AbstractEvent) {
@@ -544,6 +635,15 @@ public class StateExtractor {
             text = imageField.get(event);
         } catch (Exception ignored) {
             text = null;
+        }
+        if (text == null) {
+            try {
+                Field imageField = AbstractEvent.class.getDeclaredField("imageEventText");
+                imageField.setAccessible(true);
+                text = imageField.get(event);
+            } catch (Exception ignored) {
+                text = null;
+            }
         }
         if (text == null) {
             try {
@@ -584,7 +684,7 @@ public class StateExtractor {
             }
         }
         if (!(list instanceof List)) {
-            return options;
+            return fallbackEventOptions(event, options);
         }
         @SuppressWarnings("unchecked")
         List<Object> optionList = (List<Object>) list;
@@ -597,7 +697,22 @@ public class StateExtractor {
                 options.add(label);
             }
         }
+        if (options.isEmpty()) {
+            return fallbackEventOptions(event, options);
+        }
         return options;
+    }
+
+    private static Field findField(Class<?> type, String name) {
+        Class<?> current = type;
+        while (current != null) {
+            try {
+                return current.getDeclaredField(name);
+            } catch (Exception ignored) {
+                current = current.getSuperclass();
+            }
+        }
+        return null;
     }
 
     private static String readOptionText(Object option) {
@@ -686,6 +801,42 @@ public class StateExtractor {
             // best-effort only
         }
         return null;
+    }
+
+    private static List<String> fallbackEventOptions(AbstractEvent event, List<String> options) {
+        if (event == null) {
+            return options;
+        }
+        try {
+            java.util.ArrayList<?> btns = event.imageEventText != null ? event.imageEventText.optionList : null;
+            if (btns != null) {
+                for (Object btn : btns) {
+                    String label = readOptionText(btn);
+                    if (label != null && !label.isEmpty()) {
+                        options.add(label);
+                    }
+                }
+            }
+        } catch (Exception ignored) {
+            // ignore
+        }
+        if (!options.isEmpty()) {
+            return options;
+        }
+        try {
+            java.util.ArrayList<?> btns = event.roomEventText != null ? event.roomEventText.optionList : null;
+            if (btns != null) {
+                for (Object btn : btns) {
+                    String label = readOptionText(btn);
+                    if (label != null && !label.isEmpty()) {
+                        options.add(label);
+                    }
+                }
+            }
+        } catch (Exception ignored) {
+            // ignore
+        }
+        return options;
     }
 
     private static NeowReward matchReward(String label, List<NeowReward> rewards) {
@@ -899,6 +1050,7 @@ public class StateExtractor {
                 }
                 GameStateSnapshot.CombatCardInfo info = new GameStateSnapshot.CombatCardInfo();
                 info.card_id = card.cardID;
+                info.name = card.name;
                 info.cost = card.costForTurn;
                 info.upgraded = card.timesUpgraded > 0;
                 info.type = card.type == null ? null : card.type.toString();
@@ -923,7 +1075,24 @@ public class StateExtractor {
                 info.hp = monster.currentHealth;
                 info.maxHp = monster.maxHealth;
                 info.block = monster.currentBlock;
-                info.intent = monster.intent == null ? "unknown" : monster.intent.toString();
+                String intentName = monster.intent == null ? "" : monster.intent.name();
+                if ("DEBUG".equals(intentName)) {
+                    intentName = "unknown";
+                }
+                info.intent = intentName.isEmpty() ? "unknown" : intentName;
+                info.move_name = monster.moveName;
+                int intentDmg = monster.getIntentDmg();
+                int intentBase = monster.getIntentBaseDmg();
+                info.intent_dmg = intentDmg >= 0 ? intentDmg : null;
+                info.intent_base_dmg = intentBase >= 0 ? intentBase : null;
+                Boolean isMulti = readMonsterBool(monster, "isMultiDmg");
+                Integer multiAmt = readMonsterInt(monster, "intentMultiAmt");
+                if (Boolean.TRUE.equals(isMulti) && multiAmt != null && multiAmt > 1) {
+                    info.intent_hits = multiAmt;
+                } else if (intentDmg >= 0) {
+                    info.intent_hits = 1;
+                }
+                info.intent_multi = isMulti;
                 info.powers = new ArrayList<>();
                 if (monster.powers != null) {
                     for (int p = 0; p < monster.powers.size(); p++) {
@@ -940,6 +1109,40 @@ public class StateExtractor {
             }
         }
         return combat;
+    }
+
+    private static Integer readMonsterInt(com.megacrit.cardcrawl.monsters.AbstractMonster monster, String fieldName) {
+        if (monster == null || fieldName == null) {
+            return null;
+        }
+        try {
+            Field field = com.megacrit.cardcrawl.monsters.AbstractMonster.class.getDeclaredField(fieldName);
+            field.setAccessible(true);
+            Object value = field.get(monster);
+            if (value instanceof Integer) {
+                return (Integer) value;
+            }
+        } catch (Exception ignored) {
+            // best-effort
+        }
+        return null;
+    }
+
+    private static Boolean readMonsterBool(com.megacrit.cardcrawl.monsters.AbstractMonster monster, String fieldName) {
+        if (monster == null || fieldName == null) {
+            return null;
+        }
+        try {
+            Field field = com.megacrit.cardcrawl.monsters.AbstractMonster.class.getDeclaredField(fieldName);
+            field.setAccessible(true);
+            Object value = field.get(monster);
+            if (value instanceof Boolean) {
+                return (Boolean) value;
+            }
+        } catch (Exception ignored) {
+            // best-effort
+        }
+        return null;
     }
 
     private static Boolean readSkippable(CardRewardScreen screen) {

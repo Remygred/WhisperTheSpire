@@ -17,6 +17,8 @@ public class ModConfig {
     public static boolean showReasons = true;
     public static boolean multiRecommendations = false;
     public static boolean useKnowledgeBase = true;
+    public static boolean showCombatHand = true;
+    public static boolean showCombatEnemies = true;
     public static String provider = "openai_compat";
     public static String baseUrl = "https://api.openai.com/v1";
     public static String model = "gpt-4o-mini";
@@ -46,6 +48,8 @@ public class ModConfig {
             defaults.setProperty("showReasons", Boolean.toString(showReasons));
             defaults.setProperty("multiRecommendations", Boolean.toString(multiRecommendations));
             defaults.setProperty("useKnowledgeBase", Boolean.toString(useKnowledgeBase));
+            defaults.setProperty("showCombatHand", Boolean.toString(showCombatHand));
+            defaults.setProperty("showCombatEnemies", Boolean.toString(showCombatEnemies));
             defaults.setProperty("provider", provider);
             defaults.setProperty("baseUrl", baseUrl);
             defaults.setProperty("model", model);
@@ -72,6 +76,8 @@ public class ModConfig {
             showReasons = config.getBool("showReasons");
             multiRecommendations = config.getBool("multiRecommendations");
             useKnowledgeBase = config.getBool("useKnowledgeBase");
+            showCombatHand = config.getBool("showCombatHand");
+            showCombatEnemies = config.getBool("showCombatEnemies");
             provider = config.getString("provider");
             baseUrl = config.getString("baseUrl");
             model = config.getString("model");
@@ -110,6 +116,8 @@ public class ModConfig {
             config.setBool("showReasons", showReasons);
             config.setBool("multiRecommendations", multiRecommendations);
             config.setBool("useKnowledgeBase", useKnowledgeBase);
+            config.setBool("showCombatHand", showCombatHand);
+            config.setBool("showCombatEnemies", showCombatEnemies);
             config.setString("provider", safe(provider));
             config.setString("baseUrl", safe(baseUrl));
             config.setString("model", safe(model));

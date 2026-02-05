@@ -3,7 +3,7 @@
   "name": "WhispersTheSpire",
   "author_list": ["Remygred"],
   "description": "LLM assistant overlay.",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "sts_version": "12-18-2022",
   "mts_version": "3.30.3",
   "dependencies": ["basemod"]

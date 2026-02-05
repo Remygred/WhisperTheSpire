@@ -8,7 +8,7 @@ public class AutoRequestController {
     private static final long MAP_DEBOUNCE_MS = 5000L;
     private static final long REWARD_DEBOUNCE_MS = 2000L;
     private static final long POTION_DEBOUNCE_MS = 8000L;
-    private static final long COMBAT_DEBOUNCE_MS = 1000L;
+    private static final long COMBAT_DEBOUNCE_MS = 0L;
     private static final long NEOW_DEBOUNCE_MS = 5000L;
     private static final long SHOP_DEBOUNCE_MS = 3000L;
     private static final long BOSS_RELIC_DEBOUNCE_MS = 3000L;

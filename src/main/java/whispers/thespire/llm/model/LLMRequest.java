@@ -22,4 +22,11 @@ public class LLMRequest {
     public String mapNext;
     public Boolean mapFullAvailable;
     public String essentialFacts;
+    public String skillHints;
+    public Integer combatHandCount;
+    public String combatPlayableCards;
+    public Integer combatEnergy;
+    public String eventId;
+    public String eventName;
+    public String eventOptions;
 }

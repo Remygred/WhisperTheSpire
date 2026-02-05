@@ -32,6 +32,10 @@ public class I18n {
                 return zh ? "\u591A\u6761\u5EFA\u8BAE" : "Multiple recommendations";
             case "use_knowledge":
                 return zh ? "\u4F7F\u7528\u77E5\u8BC6\u5E93" : "Use knowledge base";
+            case "show_combat_hand":
+                return zh ? "\u663E\u793A\u624B\u724C\u5217\u8868" : "Show hand list";
+            case "show_combat_enemies":
+                return zh ? "\u663E\u793A\u654C\u4EBA\u5217\u8868" : "Show enemy list";
             case "provider":
                 return zh ? "\u670D\u52A1\u5546" : "provider";
             case "baseUrl":
@@ -96,6 +100,12 @@ public class I18n {
                 return zh ? "\u8DEF\u7EBF\u89C4\u5212" : "Route plan";
             case "turn_suggestion":
                 return zh ? "\u7B2C\u0025\u0064\u56DE\u5408\u5EFA\u8BAE" : "Turn %d suggestion";
+            case "combat_hand":
+                return zh ? "\u624B\u724C" : "Hand";
+            case "combat_enemies":
+                return zh ? "\u654C\u4EBA" : "Enemies";
+            case "combat_debug":
+                return zh ? "\u6218\u6597\u003A\u0020\u624B\u724C\u003D\u0025\u0064\u002C\u0020\u654C\u4EBA\u003D\u0025\u0064" : "Combat: hand=%d, monsters=%d";
             case "na":
                 return zh ? "\u65E0" : "N/A";
             default:

@@ -31,7 +31,8 @@ public class TriggerManager {
     private static String lastBossRelicSignature = "";
     private static String lastRestSignature = "";
     private static int lastCombatTurn = -1;
-    private static boolean lastCombatWaiting = false;
+    private static int pendingCombatTurn = -1;
+    private static int pendingCombatFrames = 0;
 
     private static boolean pendingPotion = false;
     private static String pendingPotionId = "";
@@ -131,13 +132,23 @@ public class TriggerManager {
         if (event == null && ModConfig.combatAdviceEnabled && "COMBAT".equals(context)) {
             if (!AbstractDungeon.isScreenUp && isPlayerTurn()) {
                 int turn = com.megacrit.cardcrawl.actions.GameActionManager.turn;
-                if (!lastCombatWaiting || turn != lastCombatTurn) {
-                    lastCombatTurn = turn;
-                    lastCombatWaiting = true;
-                    event = new TriggerEvent("COMBAT_TURN", "combat turn start: " + turn);
+                if (turn != lastCombatTurn && pendingCombatTurn != turn) {
+                    pendingCombatTurn = turn;
+                    pendingCombatFrames = 0;
+                }
+                if (pendingCombatTurn == turn) {
+                    pendingCombatFrames++;
+                    boolean handReady = isHandReady(turn);
+                    if (handReady || pendingCombatFrames >= 12) {
+                        lastCombatTurn = turn;
+                        pendingCombatTurn = -1;
+                        pendingCombatFrames = 0;
+                        event = new TriggerEvent("COMBAT_TURN", "combat turn start: " + turn);
+                    }
                 }
             } else {
-                lastCombatWaiting = false;
+                pendingCombatTurn = -1;
+                pendingCombatFrames = 0;
             }
         }
 
@@ -214,7 +225,8 @@ public class TriggerManager {
         lastBossRelicSignature = "";
         lastRestSignature = "";
         lastCombatTurn = -1;
-        lastCombatWaiting = false;
+        pendingCombatTurn = -1;
+        pendingCombatFrames = 0;
         pendingPotion = false;
         pendingPotionId = "";
         pendingPotionName = "";
@@ -401,6 +413,24 @@ public class TriggerManager {
         }
         return AbstractDungeon.actionManager.phase == com.megacrit.cardcrawl.actions.GameActionManager.Phase.WAITING_ON_USER
                 && !AbstractDungeon.actionManager.turnHasEnded;
+    }
+
+    private static boolean isHandReady(int turn) {
+        if (AbstractDungeon.player == null || AbstractDungeon.player.hand == null) {
+            return false;
+        }
+        int handSize = AbstractDungeon.player.hand.size();
+        if (handSize > 0) {
+            return true;
+        }
+        // For the first turn, wait for a non-empty hand to avoid firing too early.
+        if (turn <= 1) {
+            return false;
+        }
+        // If the draw pile is empty, it is possible to have an empty hand by design.
+        int drawSize = AbstractDungeon.player.drawPile == null ? 0 : AbstractDungeon.player.drawPile.size();
+        int discardSize = AbstractDungeon.player.discardPile == null ? 0 : AbstractDungeon.player.discardPile.size();
+        return drawSize == 0 && discardSize == 0;
     }
 
     public static class TriggerEvent {

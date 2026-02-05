@@ -26,8 +26,10 @@ import whispers.thespire.llm.model.LLMRequest;
 import whispers.thespire.llm.model.LLMResult;
 import whispers.thespire.logic.AutoRequestController;
 import whispers.thespire.logic.TriggerManager;
+import whispers.thespire.state.StateExtractor;
 import whispers.thespire.state.SnapshotManager;
 import whispers.thespire.state.GameStateSnapshot;
+import whispers.thespire.skills.SkillLibrary;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -105,8 +107,12 @@ public class OverlayPanel {
     private static boolean currentRequestAuto = false;
     private static String currentRequestReason = "";
     private static GameStateSnapshot currentRequestSnapshot;
+    private static boolean pendingCombatAuto = false;
+    private static String pendingCombatReason = "";
     private static boolean languageRefreshPending = false;
     private static boolean wasInRun = false;
+    private static boolean wasInCombat = false;
+    private static int combatStartHp = -1;
 
     private enum ResizeMode {
         NONE,
@@ -132,6 +138,24 @@ public class OverlayPanel {
         }
         if (!wasInRun) {
             wasInRun = true;
+        }
+
+        String liveContext = StateExtractor.getScreenContext();
+        if (llmFuture != null && currentRequestContext != null && !currentRequestContext.isEmpty()
+                && liveContext != null && !liveContext.equals(currentRequestContext)) {
+            cancelCurrentRequest();
+            llmStateLine = "context changed: canceled";
+            llmSummary = "";
+            llmRecommendations = null;
+            llmRaw = null;
+            llmNextPickIndex = null;
+            llmRoutePlan = null;
+            pendingCombatAuto = false;
+            pendingCombatReason = "";
+            currentRequestContext = "";
+            currentRequestDisplayContext = "";
+            currentRequestReason = "";
+            currentRequestSnapshot = null;
         }
 
         if (Gdx.input.isKeyJustPressed(ModConfig.hotkeyToggleOverlay)) {
@@ -239,6 +263,7 @@ public class OverlayPanel {
         }
 
         refreshSnapshot();
+        handleCombatTransition();
     }
 
     public static void onLanguageChanged() {
@@ -551,7 +576,8 @@ public class OverlayPanel {
 
 
     private static void refreshSnapshot() {
-        SnapshotManager.Result result = SnapshotManager.update(ModConfig.debugShowSnapshot, false);
+        boolean includeCombat = "COMBAT".equals(StateExtractor.getScreenContext());
+        SnapshotManager.Result result = SnapshotManager.update(ModConfig.debugShowSnapshot, includeCombat);
         if (result != null) {
             summaryLine = result.summaryLine == null ? "" : result.summaryLine;
             statusLine = result.statusLine == null ? "" : result.statusLine;
@@ -560,13 +586,35 @@ public class OverlayPanel {
         }
     }
 
+    private static void handleCombatTransition() {
+        if (!isInRun()) {
+            wasInCombat = false;
+            combatStartHp = -1;
+            return;
+        }
+        String context = StateExtractor.getScreenContext();
+        boolean inCombat = "COMBAT".equals(context);
+        if (inCombat && !wasInCombat) {
+            combatStartHp = AbstractDungeon.player == null ? -1 : AbstractDungeon.player.currentHealth;
+        }
+        if (!inCombat && wasInCombat) {
+            int endHp = AbstractDungeon.player == null ? -1 : AbstractDungeon.player.currentHealth;
+            int hpDelta = (combatStartHp >= 0 && endHp >= 0) ? (endHp - combatStartHp) : 0;
+            boolean win = AbstractDungeon.player != null && AbstractDungeon.player.currentHealth > 0;
+            SkillLibrary.recordCombatOutcome(win, hpDelta);
+            combatStartHp = -1;
+        }
+        wasInCombat = inCombat;
+    }
+
     private static void requestLLMManual() {
         if (isBusy()) {
             cancelCurrentRequest();
         }
 
         SnapshotManager.requestRefresh();
-        SnapshotManager.Result snapshot = SnapshotManager.update(true, ModConfig.combatAdviceEnabled);
+        boolean includeCombat = ModConfig.combatAdviceEnabled || "COMBAT".equals(StateExtractor.getScreenContext());
+        SnapshotManager.Result snapshot = SnapshotManager.update(true, includeCombat);
         if (snapshot == null || snapshot.json == null || snapshot.snapshot == null) {
             llmStateLine = "snapshot unavailable";
             return;
@@ -590,6 +638,17 @@ public class OverlayPanel {
         }
         try {
             LLMResult result = llmFuture.get();
+            String liveContext = StateExtractor.getScreenContext();
+            if (currentRequestContext != null && !currentRequestContext.isEmpty()
+                    && liveContext != null && !liveContext.equals(currentRequestContext)) {
+                llmStateLine = "stale result ignored";
+                llmSummary = "";
+                llmRecommendations = null;
+                llmRaw = null;
+                llmNextPickIndex = null;
+                llmRoutePlan = null;
+                return;
+            }
             if (result != null && result.ok) {
                 llmStateLine = "ok";
                 llmSummary = result.summary == null ? "" : result.summary;
@@ -600,6 +659,9 @@ public class OverlayPanel {
                 lastSuccessMs = System.currentTimeMillis();
                 lastContextType = currentRequestDisplayContext == null || currentRequestDisplayContext.isEmpty()
                         ? "N/A" : currentRequestDisplayContext;
+                if (currentRequestSnapshot != null) {
+                    SkillLibrary.recordRecommendations(result, currentRequestSnapshot);
+                }
             } else if (result != null) {
                 llmStateLine = result.errorMessage == null ? "error" : result.errorMessage;
                 llmSummary = "";
@@ -632,20 +694,51 @@ public class OverlayPanel {
         if (!ModConfig.autoTriggersEnabled) {
             return;
         }
+        if (pendingCombatAuto && !isBusy()) {
+            SnapshotManager.requestRefresh();
+            SnapshotManager.Result retrySnapshot = SnapshotManager.update(true, true);
+            if (retrySnapshot != null && retrySnapshot.snapshot != null) {
+                GameStateSnapshot.CombatInfo combat = retrySnapshot.snapshot.combat;
+                boolean handReady = combat != null && combat.hand != null && !combat.hand.isEmpty();
+                if (handReady) {
+                    pendingCombatAuto = false;
+                    AUTO_CONTROLLER.recordRequested("COMBAT_TURN", retrySnapshot.snapshot.snapshot_hash);
+                    requestLLM(retrySnapshot, true, "COMBAT_TURN", "auto: " + pendingCombatReason);
+                    return;
+                }
+            }
+            llmStateLine = "combat waiting for hand";
+            return;
+        }
         TriggerManager.TriggerEvent event = TriggerManager.pollEvent();
         if (event == null) {
             return;
         }
         if (isBusy()) {
-            llmStateLine = "COMBAT_TURN".equals(event.contextType) ? "combat skipped: busy" : "auto skipped: busy";
-            return;
+            if ("COMBAT_TURN".equals(event.contextType)) {
+                cancelCurrentRequest();
+                llmStateLine = "combat override: retry";
+            } else {
+                llmStateLine = "auto skipped: busy";
+                return;
+            }
         }
 
         SnapshotManager.requestRefresh();
-        SnapshotManager.Result snapshot = SnapshotManager.update(true, ModConfig.combatAdviceEnabled);
+        boolean includeCombat = ModConfig.combatAdviceEnabled || "COMBAT_TURN".equals(event.contextType);
+        SnapshotManager.Result snapshot = SnapshotManager.update(true, includeCombat);
         if (snapshot == null || snapshot.json == null || snapshot.snapshot == null) {
             llmStateLine = "auto skipped: snapshot unavailable";
             return;
+        }
+        if ("COMBAT_TURN".equals(event.contextType)) {
+            GameStateSnapshot.CombatInfo combat = snapshot.snapshot.combat;
+            if (combat == null || combat.hand == null || combat.hand.isEmpty()) {
+                pendingCombatAuto = true;
+                pendingCombatReason = event.reason;
+                llmStateLine = "combat waiting for hand";
+                return;
+            }
         }
 
         AutoRequestController.Decision decision = AUTO_CONTROLLER.shouldRequest(event, snapshot.snapshot.snapshot_hash, false);
@@ -754,6 +847,63 @@ public class OverlayPanel {
         }
         request.mapFullAvailable = snapshot.snapshot.map_full != null;
         request.essentialFacts = buildEssentialFacts(snapshot.snapshot);
+        request.skillHints = SkillLibrary.buildSkillHints(snapshot.snapshot, 5);
+        if ("EVENT".equalsIgnoreCase(request.contextType) && snapshot.snapshot.event != null) {
+            request.eventId = snapshot.snapshot.event.event_id;
+            request.eventName = snapshot.snapshot.event.event_name;
+            if (snapshot.snapshot.event.options != null && !snapshot.snapshot.event.options.isEmpty()) {
+                StringBuilder opts = new StringBuilder();
+                int idx = 1;
+                for (String opt : snapshot.snapshot.event.options) {
+                    if (opt == null || opt.trim().isEmpty()) {
+                        continue;
+                    }
+                    if (opts.length() > 0) {
+                        opts.append(" | ");
+                    }
+                    String clean = opt.replace("\n", " ").trim();
+                    if (clean.length() > 120) {
+                        clean = clean.substring(0, 117) + "...";
+                    }
+                    opts.append(idx).append(") ").append(clean);
+                    idx++;
+                }
+                request.eventOptions = opts.toString();
+            }
+        }
+        if ("COMBAT".equalsIgnoreCase(request.contextType)) {
+            request.combatEnergy = AbstractDungeon.player != null && AbstractDungeon.player.energy != null
+                    ? AbstractDungeon.player.energy.energy : null;
+            List<AbstractCard> live = AbstractDungeon.player != null ? AbstractDungeon.player.hand.group : null;
+            if (live != null) {
+                request.combatHandCount = live.size();
+                StringBuilder playable = new StringBuilder();
+                int added = 0;
+                for (AbstractCard card : live) {
+                    if (card == null) {
+                        continue;
+                    }
+                    int cost = card.costForTurn;
+                    if (cost < 0) {
+                        continue;
+                    }
+                    Integer energy = request.combatEnergy;
+                    if (energy != null && cost > energy) {
+                        continue;
+                    }
+                    String name = card.name != null && !card.name.isEmpty() ? card.name : card.cardID;
+                    if (name == null || name.isEmpty()) {
+                        continue;
+                    }
+                    if (added > 0) {
+                        playable.append(", ");
+                    }
+                    playable.append(name).append("(").append(cost).append(")");
+                    added++;
+                }
+                request.combatPlayableCards = playable.toString();
+            }
+        }
 
         llmFuture = LLM_CLIENT.submit(request);
     }
@@ -870,7 +1020,142 @@ public class OverlayPanel {
             sb.append(", potions=[]");
         }
 
+        if (snapshot.event != null) {
+            String eventName = snapshot.event.event_name != null && !snapshot.event.event_name.isEmpty()
+                    ? snapshot.event.event_name : snapshot.event.event_id;
+            if (eventName != null && !eventName.isEmpty()) {
+                sb.append(", event=").append(eventName);
+            }
+            if (snapshot.event.options != null && !snapshot.event.options.isEmpty()) {
+                sb.append(", event_options=[");
+                int limit = Math.min(6, snapshot.event.options.size());
+                int added = 0;
+                for (int i = 0; i < limit; i++) {
+                    String opt = snapshot.event.options.get(i);
+                    if (opt == null || opt.trim().isEmpty()) {
+                        continue;
+                    }
+                    String clean = opt.replace("\n", " ").trim();
+                    if (clean.length() > 120) {
+                        clean = clean.substring(0, 117) + "...";
+                    }
+                    if (added > 0) {
+                        sb.append(" | ");
+                    }
+                    sb.append(added + 1).append(") ").append(clean);
+                    added++;
+                }
+                sb.append("]");
+            }
+        }
+
+        if (snapshot.combat != null) {
+            sb.append(", energy=").append(snapshot.combat.energy == null ? "?" : snapshot.combat.energy);
+            sb.append(", block=").append(snapshot.combat.player_block == null ? "?" : snapshot.combat.player_block);
+            boolean wroteHand = appendCombatHandFromSnapshot(sb, snapshot.combat.hand);
+            if (!wroteHand) {
+                wroteHand = appendCombatHandFromLive(sb);
+            }
+            if (!wroteHand) {
+                sb.append(", hand=[]");
+            }
+
+            if (snapshot.combat.monsters != null && !snapshot.combat.monsters.isEmpty()) {
+                sb.append(", monsters=[");
+                int limit = Math.min(4, snapshot.combat.monsters.size());
+                int added = 0;
+                for (int i = 0; i < limit; i++) {
+                    GameStateSnapshot.MonsterInfo monster = snapshot.combat.monsters.get(i);
+                    if (monster == null) {
+                        continue;
+                    }
+                    String name = monster.name != null && !monster.name.isEmpty() ? monster.name : monster.id;
+                    if (name == null || name.isEmpty()) {
+                        continue;
+                    }
+                    if (added > 0) {
+                        sb.append(", ");
+                    }
+                    sb.append(name);
+                    if (monster.intent != null) {
+                        sb.append("{").append(monster.intent);
+                        if (monster.intent_dmg != null) {
+                            sb.append(" dmg=").append(monster.intent_dmg);
+                            if (monster.intent_hits != null && monster.intent_hits > 1) {
+                                sb.append("x").append(monster.intent_hits);
+                            }
+                        }
+                        sb.append("}");
+                    }
+                    added++;
+                }
+                sb.append("]");
+            }
+        }
+
         return sb.toString();
+    }
+
+    private static boolean appendCombatHandFromSnapshot(StringBuilder sb, List<GameStateSnapshot.CombatCardInfo> hand) {
+        if (hand == null || hand.isEmpty()) {
+            return false;
+        }
+        sb.append(", hand=[");
+        int limit = Math.min(10, hand.size());
+        int added = 0;
+        for (int i = 0; i < limit; i++) {
+            GameStateSnapshot.CombatCardInfo card = hand.get(i);
+            if (card == null) {
+                continue;
+            }
+            String name = card.name != null && !card.name.isEmpty() ? card.name : card.card_id;
+            if (name == null || name.isEmpty()) {
+                continue;
+            }
+            if (added > 0) {
+                sb.append(",");
+            }
+            sb.append(name);
+            if (card.cost != null) {
+                sb.append("(").append(card.cost).append(")");
+            }
+            added++;
+        }
+        sb.append("]");
+        return added > 0;
+    }
+
+    private static boolean appendCombatHandFromLive(StringBuilder sb) {
+        if (AbstractDungeon.player == null || AbstractDungeon.player.hand == null || AbstractDungeon.player.hand.group == null) {
+            return false;
+        }
+        List<AbstractCard> live = AbstractDungeon.player.hand.group;
+        if (live.isEmpty()) {
+            return false;
+        }
+        sb.append(", hand=[");
+        int limit = Math.min(10, live.size());
+        int added = 0;
+        for (int i = 0; i < limit; i++) {
+            AbstractCard card = live.get(i);
+            if (card == null) {
+                continue;
+            }
+            String name = card.name != null && !card.name.isEmpty() ? card.name : card.cardID;
+            if (name == null || name.isEmpty()) {
+                continue;
+            }
+            if (added > 0) {
+                sb.append(",");
+            }
+            sb.append(name);
+            if (card.costForTurn >= 0) {
+                sb.append("(").append(card.costForTurn).append(")");
+            }
+            added++;
+        }
+        sb.append("]");
+        return added > 0;
     }
 
     private static String safeStr(String value) {
@@ -915,6 +1200,8 @@ public class OverlayPanel {
         currentRequestAuto = false;
         currentRequestReason = "";
         currentRequestSnapshot = null;
+        pendingCombatAuto = false;
+        pendingCombatReason = "";
     }
 
     private static void renderContent(SpriteBatch sb, float pad, float titleH) {
@@ -1086,6 +1373,8 @@ public class OverlayPanel {
         sb.append(ModConfig.showReasons).append('|');
         sb.append(ModConfig.multiRecommendations);
         sb.append('|').append(ModConfig.useKnowledgeBase);
+        sb.append('|').append(ModConfig.showCombatHand);
+        sb.append('|').append(ModConfig.showCombatEnemies);
         sb.append('|').append(llmNextPickIndex == null ? "" : llmNextPickIndex.toString());
         if (llmRoutePlan != null) {
             for (String plan : llmRoutePlan) {
@@ -1109,6 +1398,21 @@ public class OverlayPanel {
             meta = meta + ", " + lastAutoReason;
         }
         addWrappedLine(lines, FontHelper.smallDialogOptionFont, meta, 0f, TEXT_COLOR, 8f * Settings.scale, maxWidth);
+
+        if (lastSnapshot != null && lastSnapshot.combat != null) {
+            if (ModConfig.showCombatHand) {
+                String handLine = buildHandLine(lastSnapshot.combat);
+                if (handLine != null && !handLine.isEmpty()) {
+                    addWrappedLine(lines, FontHelper.smallDialogOptionFont, handLine, 0f, TEXT_COLOR, 4f * Settings.scale, maxWidth);
+                }
+            }
+            if (ModConfig.showCombatEnemies) {
+                String enemyLine = buildEnemyLine(lastSnapshot.combat);
+                if (enemyLine != null && !enemyLine.isEmpty()) {
+                    addWrappedLine(lines, FontHelper.smallDialogOptionFont, enemyLine, 0f, TEXT_COLOR, 6f * Settings.scale, maxWidth);
+                }
+            }
+        }
 
         if (llmFuture != null && !llmFuture.isDone()) {
             String analyzingText = llmStateLine == null || llmStateLine.isEmpty() ? I18n.t("analyzing") : llmStateLine;
@@ -1165,6 +1469,107 @@ public class OverlayPanel {
         }
 
         return lines;
+    }
+
+    private static String buildHandLine(GameStateSnapshot.CombatInfo combat) {
+        if (combat == null) {
+            return "";
+        }
+        StringBuilder sb = new StringBuilder();
+        sb.append(I18n.t("combat_hand")).append(": ");
+        if (combat.hand == null || combat.hand.isEmpty()) {
+            sb.append(I18n.t("na"));
+            return sb.toString();
+        }
+        int limit = Math.min(10, combat.hand.size());
+        int added = 0;
+        for (int i = 0; i < limit; i++) {
+            GameStateSnapshot.CombatCardInfo card = combat.hand.get(i);
+            if (card == null) {
+                continue;
+            }
+            String name = card.name != null && !card.name.isEmpty() ? card.name : card.card_id;
+            if (name == null || name.isEmpty()) {
+                continue;
+            }
+            if (added > 0) {
+                sb.append(", ");
+            }
+            sb.append(name);
+            if (card.cost != null) {
+                sb.append("(").append(card.cost).append(")");
+            }
+            added++;
+        }
+        if (added == 0) {
+            sb.append(I18n.t("na"));
+        }
+        return sb.toString();
+    }
+
+    private static String buildEnemyLine(GameStateSnapshot.CombatInfo combat) {
+        if (combat == null) {
+            return "";
+        }
+        StringBuilder sb = new StringBuilder();
+        sb.append(I18n.t("combat_enemies")).append(": ");
+        if (combat.monsters == null || combat.monsters.isEmpty()) {
+            sb.append(I18n.t("na"));
+            return sb.toString();
+        }
+        int limit = Math.min(4, combat.monsters.size());
+        int added = 0;
+        for (int i = 0; i < limit; i++) {
+            GameStateSnapshot.MonsterInfo monster = combat.monsters.get(i);
+            if (monster == null) {
+                continue;
+            }
+            String name = monster.name != null && !monster.name.isEmpty() ? monster.name : monster.id;
+            if (name == null || name.isEmpty()) {
+                continue;
+            }
+            if (added > 0) {
+                sb.append(", ");
+            }
+            sb.append(name);
+            String intent = formatMonsterIntent(monster);
+            if (intent != null && !intent.isEmpty()) {
+                sb.append(" (").append(intent).append(")");
+            }
+            added++;
+        }
+        if (added == 0) {
+            sb.append(I18n.t("na"));
+        }
+        return sb.toString();
+    }
+
+    private static String formatMonsterIntent(GameStateSnapshot.MonsterInfo monster) {
+        if (monster == null || monster.intent == null || monster.intent.isEmpty()) {
+            if (monster != null && monster.intent_dmg != null && monster.intent_dmg >= 0) {
+                StringBuilder atk = new StringBuilder();
+                atk.append("ATTACK ").append(monster.intent_dmg);
+                if (monster.intent_hits != null && monster.intent_hits > 1) {
+                    atk.append("x").append(monster.intent_hits);
+                }
+                return atk.toString();
+            }
+            return "";
+        }
+        if ("DEBUG".equalsIgnoreCase(monster.intent) || "UNKNOWN".equalsIgnoreCase(monster.intent) || "unknown".equalsIgnoreCase(monster.intent)) {
+            return "";
+        }
+        StringBuilder sb = new StringBuilder();
+        sb.append(monster.intent);
+        if (monster.intent_dmg != null && monster.intent_dmg >= 0) {
+            sb.append(" ").append(monster.intent_dmg);
+            if (monster.intent_hits != null && monster.intent_hits > 1) {
+                sb.append("x").append(monster.intent_hits);
+            }
+        } else if (monster.move_name != null && !monster.move_name.isEmpty()) {
+            sb.append(": ").append(monster.move_name);
+        }
+        return sb.toString();
     }
 
     private static void addWrappedLine(List<RenderLine> lines, BitmapFont font, String text, float indent, Color color, float gapAfter, float maxWidth) {

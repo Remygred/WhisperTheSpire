@@ -37,6 +37,8 @@ public class WhispersTheSpireMod implements RenderSubscriber, PostUpdateSubscrib
     private static ModLabeledToggleButton overlayToggle;
     private static ModLabeledToggleButton autoToggle;
     private static ModLabeledToggleButton combatToggle;
+    private static ModLabeledToggleButton combatHandToggle;
+    private static ModLabeledToggleButton combatEnemiesToggle;
     private static ModLabeledToggleButton snapshotToggle;
     private static ModLabeledToggleButton rawToggle;
     private static ModLabeledToggleButton showReasonsToggle;
@@ -148,7 +150,7 @@ public class WhispersTheSpireMod implements RenderSubscriber, PostUpdateSubscrib
         float rightXU = blockXU + leftWidthU + gapU;
         float availableHU = contentTopU - contentBottomU;
 
-        int rightRows = 9;
+        int rightRows = 11;
         int leftRows = 7;
         int maxRows = Math.max(rightRows, leftRows);
         float rowU = clamp(availableHU / (maxRows + 1.5f), 44f, 66f);
@@ -227,6 +229,42 @@ public class WhispersTheSpireMod implements RenderSubscriber, PostUpdateSubscrib
                 }
         );
         addElement(panel, combatToggle, rightY, combatToggle::setY);
+        contentMinY = Math.min(contentMinY, rightY);
+        rightY -= rowU;
+
+        combatHandToggle = new ModLabeledToggleButton(
+                I18n.t("show_combat_hand"),
+                rightXU,
+                rightY,
+                Color.WHITE,
+                FontHelper.charDescFont,
+                ModConfig.showCombatHand,
+                panel,
+                label -> {},
+                button -> {
+                    ModConfig.showCombatHand = button.enabled;
+                    ModConfig.save();
+                }
+        );
+        addElement(panel, combatHandToggle, rightY, combatHandToggle::setY);
+        contentMinY = Math.min(contentMinY, rightY);
+        rightY -= rowU;
+
+        combatEnemiesToggle = new ModLabeledToggleButton(
+                I18n.t("show_combat_enemies"),
+                rightXU,
+                rightY,
+                Color.WHITE,
+                FontHelper.charDescFont,
+                ModConfig.showCombatEnemies,
+                panel,
+                label -> {},
+                button -> {
+                    ModConfig.showCombatEnemies = button.enabled;
+                    ModConfig.save();
+                }
+        );
+        addElement(panel, combatEnemiesToggle, rightY, combatEnemiesToggle::setY);
         contentMinY = Math.min(contentMinY, rightY);
         rightY -= rowU;
 
@@ -498,6 +536,12 @@ public class WhispersTheSpireMod implements RenderSubscriber, PostUpdateSubscrib
         }
         if (combatToggle != null && combatToggle.text != null) {
             combatToggle.text.text = I18n.t("combat_advice_enabled");
+        }
+        if (combatHandToggle != null && combatHandToggle.text != null) {
+            combatHandToggle.text.text = I18n.t("show_combat_hand");
+        }
+        if (combatEnemiesToggle != null && combatEnemiesToggle.text != null) {
+            combatEnemiesToggle.text.text = I18n.t("show_combat_enemies");
         }
         if (snapshotToggle != null && snapshotToggle.text != null) {
             snapshotToggle.text.text = I18n.t("debug_show_snapshot");

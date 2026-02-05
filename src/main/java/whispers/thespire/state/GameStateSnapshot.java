@@ -161,6 +161,7 @@ public class GameStateSnapshot {
 
     public static class CombatCardInfo {
         public String card_id;
+        public String name;
         public Integer cost;
         public Boolean upgraded;
         public String type;
@@ -173,6 +174,11 @@ public class GameStateSnapshot {
         public Integer maxHp;
         public Integer block;
         public String intent;
+        public Integer intent_dmg;
+        public Integer intent_base_dmg;
+        public Integer intent_hits;
+        public Boolean intent_multi;
+        public String move_name;
         public List<PowerInfo> powers;
     }
 }
